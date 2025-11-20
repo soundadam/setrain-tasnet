@@ -12,8 +12,6 @@ from LitModule import LitModule
 import torch
 import argparse
 import os
-from datetime import datetime
-from pathlib import Path
 import pytorch_lightning as pl
 # from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.loggers import WandbLogger
@@ -21,9 +19,6 @@ from utils import snapshot_experiment
 def Train(opt):
     # init Lightning Model
     light = LitModule(**opt['light_conf'])
-
-    experiments_root = os.path.join(opt['resume']['path'], 'experiments')
-    os.makedirs(experiments_root, exist_ok=True)
 
     # Early Stopping
     early_stopping = False
@@ -37,22 +32,28 @@ def Train(opt):
     else:
         gpus = None
     
+    resume_cfg = opt.get('resume', {})
+    base_root = os.path.abspath(resume_cfg.get('path', './Conv-TasNet_lightning'))
+    wandb_root = os.path.join(base_root, 'wandb')
+    experiments_root = os.path.join(base_root, 'experiments')
+    os.makedirs(wandb_root, exist_ok=True)
+    os.makedirs(experiments_root, exist_ok=True)
+
     wandb_logger = WandbLogger(
         project="setrain-tasnet",
-        save_dir=experiments_root,
+        save_dir=wandb_root,
         log_model=False,
+        save_code=True,
     )
 
-    experiment_name = opt['resume'].get('experiment_name') or opt['resume'].get('checkpoint')
-    if not experiment_name or str(experiment_name).lower() == 'auto':
+    experiment_name = resume_cfg.get('experiment_name')
+    if not experiment_name:
         experiment_name = getattr(wandb_logger.experiment, 'name', None)
     if not experiment_name:
-        experiment_name = f"exp-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        experiment_name = f"exp-{wandb_logger.version}"
 
     experiment_dir = os.path.join(experiments_root, experiment_name)
-    os.makedirs(experiment_dir, exist_ok=True)
-
-    snapshot_experiment(experiment_dir, opt, Path(__file__).resolve().parent)
+    snapshot_experiment(experiment_dir, opt, code_root=None)
 
     ckpt_dir = os.path.join(experiment_dir, "checkpoints")
     os.makedirs(ckpt_dir, exist_ok=True)
