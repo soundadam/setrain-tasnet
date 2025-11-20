@@ -12,6 +12,7 @@ from LitModule import LitModule
 import torch
 import argparse
 import os
+from datetime import datetime
 from pathlib import Path
 import pytorch_lightning as pl
 # from pytorch_lightning.loggers import TensorBoardLogger
@@ -21,11 +22,8 @@ def Train(opt):
     # init Lightning Model
     light = LitModule(**opt['light_conf'])
 
-    # mkdir the file of Experiment path
-    os.makedirs(os.path.join(opt['resume']['path'],
-                             opt['resume']['checkpoint']), exist_ok=True)
-    checkpoint_root = os.path.join(
-        opt['resume']['path'], opt['resume']['checkpoint'])
+    experiments_root = os.path.join(opt['resume']['path'], 'experiments')
+    os.makedirs(experiments_root, exist_ok=True)
 
     # Early Stopping
     early_stopping = False
@@ -41,24 +39,26 @@ def Train(opt):
     
     wandb_logger = WandbLogger(
         project="setrain-tasnet",
-        save_dir=opt['resume']['path'],
+        save_dir=experiments_root,
         log_model=False,
     )
 
-    run = wandb_logger.experiment
-    run_dir_attr = getattr(run, "dir", None)
-    run_dir = run_dir_attr() if callable(run_dir_attr) else run_dir_attr
-    if not run_dir:
-        run_dir = os.path.join(opt['resume']['path'], f"wandb-run-{wandb_logger.version}")
+    experiment_name = opt['resume'].get('experiment_name') or opt['resume'].get('checkpoint')
+    if not experiment_name or str(experiment_name).lower() == 'auto':
+        experiment_name = getattr(wandb_logger.experiment, 'name', None)
+    if not experiment_name:
+        experiment_name = f"exp-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
 
-    snapshot_experiment(run_dir, opt, Path(__file__).resolve().parent)
+    experiment_dir = os.path.join(experiments_root, experiment_name)
+    os.makedirs(experiment_dir, exist_ok=True)
 
-    ckpt_dir = os.path.join(run_dir, "checkpoints")
+    snapshot_experiment(experiment_dir, opt, Path(__file__).resolve().parent)
+
+    ckpt_dir = os.path.join(experiment_dir, "checkpoints")
     os.makedirs(ckpt_dir, exist_ok=True)
-    sample_dir = os.path.join(run_dir, "val_samples")
+    sample_dir = os.path.join(experiment_dir, "val_samples")
     os.makedirs(sample_dir, exist_ok=True)
     light.sample_save_dir = sample_dir
-    light.max_val_samples_to_save = opt['light_conf'].get('val_samples_to_save', 3)
 
     checkpoint = ModelCheckpoint(
         dirpath=ckpt_dir,
@@ -86,7 +86,7 @@ def Train(opt):
 
     trainer = pl.Trainer(
         max_epochs=opt['train']['epochs'],
-        default_root_dir=checkpoint_root,
+        default_root_dir=experiment_dir,
         accelerator=accelerator,
         devices=devices,
         limit_train_batches=0.3,
@@ -95,7 +95,10 @@ def Train(opt):
         logger=wandb_logger,
         val_check_interval=1.0)
 
-    trainer.fit(light, ckpt_path=opt['resume']['load_from'])
+    ckpt_path = opt['resume'].get('load_from')
+    if isinstance(ckpt_path, str) and ckpt_path.lower() == 'none':
+        ckpt_path = None
+    trainer.fit(light, ckpt_path=ckpt_path)
 
 
 if __name__ == "__main__":
