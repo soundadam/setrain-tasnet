@@ -12,8 +12,7 @@ from Loss import Loss
 import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
-from Datasets import Datasets
-from pytorch_lightning.core.lightning import LightningModule
+# from datasets_related.Datasets import Datasets
 
 
 class ChannelWiseLayerNorm(nn.LayerNorm):
@@ -183,7 +182,7 @@ class Decoder(nn.Module):
         return torch.squeeze(x)
 
 
-class ConvTasNet(LightningModule):
+class ConvTasNet(nn.Module):
     def __init__(self,
                  N=512,
                  L=16,

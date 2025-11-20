@@ -8,24 +8,23 @@
 
 from option import parse
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
-from lightning import Lightning
+from LitModule import LitModule 
 import torch
 import argparse
 import os
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import TensorBoardLogger
-
+# from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import WandbLogger
+# import wandb
 def Train(opt):
     # init Lightning Model
-    light = Lightning(**opt['light_conf'])
+    light = LitModule(**opt['light_conf'])
 
     # mkdir the file of Experiment path
     os.makedirs(os.path.join(opt['resume']['path'],
                              opt['resume']['checkpoint']), exist_ok=True)
-    checkpoint_path = os.path.join(
+    checkpoint_root = os.path.join(
         opt['resume']['path'], opt['resume']['checkpoint'])
-    checkpoint = ModelCheckpoint(
-        checkpoint_path, monitor='val_loss', mode='min', save_top_k=1, verbose=1, save_last=True)
 
     # Early Stopping
     early_stopping = False
@@ -38,31 +37,58 @@ def Train(opt):
         gpus = len(opt['gpu_ids'])
     else:
         gpus = None
-    # logger
     
-    # default logger used by trainer
-    logger = TensorBoardLogger(
-        save_dir='./logger',
-        version=1,
-        name='lightning_logs'
+    wandb_logger = WandbLogger(
+        project="setrain-tasnet",
+        save_dir=opt['resume']['path'],
+        log_model=False,
     )
-    # Trainer
-    trainer = pl.Trainer(max_epochs=opt['train']['epochs'],
-                         checkpoint_callback=checkpoint,
-                         early_stop_callback=early_stopping,
-                         default_root_dir=checkpoint_path,
-                         gpus=gpus,
-                         distributed_backend=opt['train']['distributed_backend'],
-                         train_percent_check=1.0,  # Useful for fast experiment
-                         gradient_clip_val=5.,
-                         logger=logger)
 
-    trainer.fit(light)
+    run_dir = wandb_logger.experiment.dir
+    ckpt_dir = os.path.join(run_dir, "checkpoints")
+    os.makedirs(ckpt_dir, exist_ok=True)
+
+    checkpoint = ModelCheckpoint(
+        dirpath=ckpt_dir,
+        filename="epoch{epoch:03d}-valloss{val_loss:.4f}",
+        monitor='val_loss',
+        mode='min',
+        save_top_k=1,
+        save_last=True,
+        verbose=1,
+    )
+    
+
+    # Build callbacks list
+    callbacks = [checkpoint]
+    if early_stopping:
+        callbacks.append(early_stopping)
+
+    # Trainer setup (Lightning 1.9+/2.x style)
+    if torch.cuda.is_available() and gpus and gpus > 0:
+        accelerator = 'gpu'
+        devices = gpus
+    else:
+        accelerator = 'cpu'
+        devices = 1
+
+    trainer = pl.Trainer(
+        max_epochs=opt['train']['epochs'],
+        default_root_dir=checkpoint_root,
+        accelerator=accelerator,
+        devices=devices,
+        limit_train_batches=0.3,
+        gradient_clip_val=5.0,
+        callbacks=callbacks,
+        logger=wandb_logger,
+        val_check_interval=1.0)
+
+    trainer.fit(light, ckpt_path=opt['resume']['load_from'])
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--opt', type=str, help='Path to option YAML file.')
+    parser.add_argument('--opt', type=str, default='train.yml', help='Path to option YAML file.')
     args = parser.parse_args()
 
     opt = parse(args.opt, is_train=True)

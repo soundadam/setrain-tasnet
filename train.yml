@@ -1,4 +1,8 @@
-gpu_ids: [0,1,2,3,4,5,6,7]
+gpu_ids: [0]
+
+paths:
+  datasets_related: datasets_related
+  dns_root: ../DNS3
 
 light_conf:
   N: 512
@@ -9,7 +13,7 @@ light_conf:
   X: 8
   R: 3
   norm: gLN
-  num_spks: 2
+  num_spks: 1 # for se usage
   activate: relu
   causal: false
   # optimizer
@@ -18,19 +22,21 @@ light_conf:
   scheduler_mode: min
   scheduler_factor: 0.5
   patience: 2
-  # Dataset
-  train_mix_scp: /home/likai/data1/create_scp/tr_mix.scp
+  # Dataset (.scp output paths; relative to repo). genscp.py will create these.
+  train_mix_scp: "{datasets_related}/tr_mix.scp"
   train_ref_scp: 
-    - /home/likai/data1/create_scp/tr_s1.scp
-    - /home/likai/data1/create_scp/tr_s2.scp
-  val_mix_scp: /home/likai/data1/create_scp/cv_mix.scp
+    - "{datasets_related}/tr_s1.scp"
+  # train_length_in_seconds: 9.0 # not implemented
+  val_mix_scp: "{datasets_related}/cv_mix.scp"
   val_ref_scp: 
-    - /home/likai/data1/create_scp/cv_s1.scp
-    - /home/likai/data1/create_scp/cv_s2.scp
-  sr: 8000
+    - "{datasets_related}/cv_s1.scp"
+  chunk_size_in_seconds: 4.0 # for training only; set None for full utterance (testing&validation)
+
+
+  sr: 16000
   # DataLoader
   batch_size: 2
-  num_workers: 16
+  num_workers: 1
 
 train:
   epochs: 130
@@ -39,5 +45,14 @@ train:
   distributed_backend: ddp #dp, ddp, ddp_cpu, ddp2
 
 resume:
-  path: /home/likai/data1/Conv-TasNet_lightning
+  path: ./Conv-TasNet_lightning
   checkpoint: Conv-TasNet_lightning
+  load_from: None
+# Input dataset directories for genscp.py to scan
+data_dirs:
+  train:
+    mix: "{dns_root}/train_noisy"
+    s1:  "{dns_root}/train_clean"
+  val:
+    mix: "{dns_root}/dev_noisy"
+    s1:  "{dns_root}/dev_clean"

@@ -34,3 +34,4 @@ def handle_scp(scp_path):
         scp_dict[key] = value
 
     return scp_dict
+

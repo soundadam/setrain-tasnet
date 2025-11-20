@@ -46,6 +46,8 @@ class Loss(object):
 
         # P x N
         N = ests[0].size(0)
+        if N == 1:
+            return sisnr_loss(ests[0]) # no PIT for se
         sisnr_mat = torch.stack(
             [sisnr_loss(p) for p in permutations(range(len(ests)))])
         max_perutt, _ = torch.max(sisnr_mat, dim=0)
@@ -54,7 +56,7 @@ class Loss(object):
 
 
 if __name__ == "__main__":
-    ests = torch.randn(4,320)
-    egs = torch.randn(4,320)
+    ests = torch.randn(1,320)
+    egs = torch.randn(1,320)
     loss = Loss()
     print(loss.compute_loss(ests, egs))
