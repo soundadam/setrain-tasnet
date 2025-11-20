@@ -163,6 +163,11 @@ class LitModule(LightningModule):
         if self.sample_save_dir is None or self.max_val_samples_to_save <= 0:
             return
 
+        trainer = getattr(self, 'trainer', None)
+        if trainer is not None and hasattr(trainer, 'is_global_zero'):
+            if not trainer.is_global_zero:
+                return
+
         if self._last_sample_epoch != self.current_epoch:
             self._last_sample_epoch = self.current_epoch
             self._saved_val_samples = 0

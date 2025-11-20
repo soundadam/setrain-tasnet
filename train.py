@@ -12,6 +12,7 @@ from LitModule import LitModule
 import torch
 import argparse
 import json
+import os
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -21,11 +22,31 @@ from pytorch_lightning.loggers import WandbLogger
 from utils import snapshot_experiment
 
 
-def _prepare_experiment_dirs(opt, wandb_logger):
+def _is_global_zero():
+    rank = os.environ.get('RANK')
+    if rank is None:
+        rank = os.environ.get('SLURM_PROCID')
+    if rank is None:
+        return True
+    try:
+        return int(rank) == 0
+    except ValueError:
+        return True
+
+
+def _prepare_experiment_dirs(opt, wandb_logger, is_master=True):
     resume_cfg = opt.get('resume', {})
     run = wandb_logger.experiment
     run_dir_attr = getattr(run, 'dir', None)
-    run_dir = Path(run_dir_attr() if callable(run_dir_attr) else run_dir_attr) if run_dir_attr else None
+    run_dir_value = None
+    if callable(run_dir_attr):
+        try:
+            run_dir_value = run_dir_attr()
+        except Exception:
+            run_dir_value = None
+    else:
+        run_dir_value = run_dir_attr
+    run_dir = Path(run_dir_value) if run_dir_value else None
 
     if run_dir is not None:
         wandb_root = run_dir.parent
@@ -44,7 +65,10 @@ def _prepare_experiment_dirs(opt, wandb_logger):
         exp_name = default_name
 
     experiment_dir = exp_root / exp_name
-    snapshot_experiment(experiment_dir, opt, Path(__file__).resolve().parent)
+    if is_master:
+        snapshot_experiment(experiment_dir, opt, Path(__file__).resolve().parent)
+    else:
+        experiment_dir.mkdir(parents=True, exist_ok=True)
 
     ckpt_dir = experiment_dir / 'checkpoints'
     sample_dir = experiment_dir / 'val_samples'
@@ -131,13 +155,15 @@ def Train(opt):
     else:
         gpus = None
     
+    is_master = _is_global_zero()
+
     wandb_logger = WandbLogger(
         project="setrain-tasnet",
         log_model=False,
         save_code=True,
     )
 
-    experiment_dir, ckpt_dir, sample_dir = _prepare_experiment_dirs(opt, wandb_logger)
+    experiment_dir, ckpt_dir, sample_dir = _prepare_experiment_dirs(opt, wandb_logger, is_master=is_master)
 
     light.sample_save_dir = str(sample_dir)
     light.max_val_samples_to_save = opt['light_conf'].get('val_samples_to_save', light.max_val_samples_to_save)
