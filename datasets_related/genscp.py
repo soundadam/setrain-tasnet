@@ -251,7 +251,7 @@ def main() -> None:
     parser.add_argument(
         "--relative-to",
         type=str,
-        default=None,
+        default='./',
         help="Base directory to which written paths should be relative (default: absolute paths)",
     )
     args = parser.parse_args()

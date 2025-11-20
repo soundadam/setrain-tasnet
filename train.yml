@@ -1,4 +1,4 @@
-gpu_ids: [0]
+gpu_ids: [0,1,2,3]
 
 paths:
   datasets_related: datasets_related
@@ -35,8 +35,8 @@ light_conf:
 
   sr: 16000
   # DataLoader
-  batch_size: 2
-  num_workers: 1
+  batch_size: 3
+  num_workers: 9
 
 train:
   epochs: 130

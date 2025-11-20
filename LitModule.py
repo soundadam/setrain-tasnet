@@ -157,7 +157,7 @@ class LitModule(LightningModule):
     def val_dataloader(self):
         dataset = Datasets(self.val_mix_scp,
                            self.val_ref_scp, sr=self.sample_rate, chunk_size_in_seconds=None)
-        return DataLoader(dataset, batch_size=self.batch_size, num_workers=self.num_workers, shuffle=False, drop_last=True)
+        return DataLoader(dataset, batch_size=int(1.5 * self.batch_size), num_workers=self.num_workers, shuffle=False, drop_last=True)
     
     def _maybe_save_samples(self, noisy, refs, ests):
         if self.sample_save_dir is None or self.max_val_samples_to_save <= 0:
