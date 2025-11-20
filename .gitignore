@@ -1,7 +1,7 @@
 # wandb
 wandb/*
 Conv-TasNet_lightning/
-
+SEtrain/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
