@@ -21,19 +21,29 @@ from pytorch_lightning.loggers import WandbLogger
 from utils import snapshot_experiment
 
 
-def _prepare_experiment_dirs(opt):
+def _prepare_experiment_dirs(opt, wandb_logger):
     resume_cfg = opt.get('resume', {})
-    base_root = Path(resume_cfg.get('path', './Conv-TasNet_lightning')).resolve()
-    experiments_root = base_root / 'experiments'
-    wandb_root = base_root / 'wandb'
-    experiments_root.mkdir(parents=True, exist_ok=True)
-    wandb_root.mkdir(parents=True, exist_ok=True)
+    run = wandb_logger.experiment
+    run_dir_attr = getattr(run, 'dir', None)
+    run_dir = Path(run_dir_attr() if callable(run_dir_attr) else run_dir_attr) if run_dir_attr else None
 
-    exp_name = resume_cfg.get('experiment_name') or resume_cfg.get('checkpoint')
+    if run_dir is not None:
+        wandb_root = run_dir.parent
+        default_name = run_dir.name
+    else:
+        wandb_root = Path(wandb_logger.save_dir or './wandb').resolve()
+        default_name = f"run-{wandb_logger.version or datetime.now().strftime('%Y%m%d-%H%M%S')}"
+
+    exp_root = Path(str(wandb_root).replace('wandb', 'exp_local', 1))
+    if exp_root == wandb_root:
+        exp_root = wandb_root.with_name('exp_local')
+    exp_root.mkdir(parents=True, exist_ok=True)
+
+    exp_name = resume_cfg.get('experiment_name') or resume_cfg.get('checkpoint') or default_name
     if not exp_name or str(exp_name).strip().lower() in ('', 'none'):
-        exp_name = datetime.now().strftime('exp-%Y%m%d-%H%M%S')
+        exp_name = default_name
 
-    experiment_dir = experiments_root / exp_name
+    experiment_dir = exp_root / exp_name
     snapshot_experiment(experiment_dir, opt, Path(__file__).resolve().parent)
 
     ckpt_dir = experiment_dir / 'checkpoints'
@@ -41,7 +51,7 @@ def _prepare_experiment_dirs(opt):
     ckpt_dir.mkdir(exist_ok=True)
     sample_dir.mkdir(exist_ok=True)
 
-    return base_root, wandb_root, experiment_dir, ckpt_dir, sample_dir
+    return experiment_dir, ckpt_dir, sample_dir
 
 
 def _resolve_resume_checkpoint(load_from, ckpt_dir):
@@ -121,14 +131,13 @@ def Train(opt):
     else:
         gpus = None
     
-    _, wandb_root, experiment_dir, ckpt_dir, sample_dir = _prepare_experiment_dirs(opt)
-
     wandb_logger = WandbLogger(
         project="setrain-tasnet",
-        save_dir=str(wandb_root),
         log_model=False,
         save_code=True,
     )
+
+    experiment_dir, ckpt_dir, sample_dir = _prepare_experiment_dirs(opt, wandb_logger)
 
     light.sample_save_dir = str(sample_dir)
     light.max_val_samples_to_save = opt['light_conf'].get('val_samples_to_save', light.max_val_samples_to_save)
