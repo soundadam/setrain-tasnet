@@ -12,10 +12,11 @@ from LitModule import LitModule
 import torch
 import argparse
 import os
+from pathlib import Path
 import pytorch_lightning as pl
 # from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.loggers import WandbLogger
-# import wandb
+from utils import snapshot_experiment
 def Train(opt):
     # init Lightning Model
     light = LitModule(**opt['light_conf'])
@@ -44,9 +45,20 @@ def Train(opt):
         log_model=False,
     )
 
-    run_dir = wandb_logger.experiment.dir
+    run = wandb_logger.experiment
+    run_dir_attr = getattr(run, "dir", None)
+    run_dir = run_dir_attr() if callable(run_dir_attr) else run_dir_attr
+    if not run_dir:
+        run_dir = os.path.join(opt['resume']['path'], f"wandb-run-{wandb_logger.version}")
+
+    snapshot_experiment(run_dir, opt, Path(__file__).resolve().parent)
+
     ckpt_dir = os.path.join(run_dir, "checkpoints")
     os.makedirs(ckpt_dir, exist_ok=True)
+    sample_dir = os.path.join(run_dir, "val_samples")
+    os.makedirs(sample_dir, exist_ok=True)
+    light.sample_save_dir = sample_dir
+    light.max_val_samples_to_save = opt['light_conf'].get('val_samples_to_save', 3)
 
     checkpoint = ModelCheckpoint(
         dirpath=ckpt_dir,

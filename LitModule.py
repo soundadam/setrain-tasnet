@@ -16,6 +16,7 @@ from torch.utils.data import DataLoader
 from datasets_related.Datasets import Datasets
 from pytorch_lightning import LightningModule
 from model import ConvTasNet
+from utils import save_validation_samples
 
 
 class LitModule(LightningModule):
@@ -72,6 +73,10 @@ class LitModule(LightningModule):
         # -----------------------model-----------------------
         self.convtasnet = ConvTasNet(
             N, L, B, H, P, X, R, norm, num_spks, activate)
+        self.sample_save_dir = None
+        self.max_val_samples_to_save = 3
+        self._saved_val_samples = 0
+        self._last_sample_epoch = -1
 
     def forward(self, x):
         return self.convtasnet(x)
@@ -112,6 +117,7 @@ class LitModule(LightningModule):
         loss = ls_fn.compute_loss(ests, refs)
         # log validation loss aggregated over the epoch
         self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
+        self._maybe_save_samples(mix, refs, ests)
         return loss
     
     # in modern Lightning, per-epoch aggregation is handled via self.log(on_epoch=True)
@@ -153,5 +159,29 @@ class LitModule(LightningModule):
                            self.val_ref_scp, sr=self.sample_rate, chunk_size_in_seconds=None)
         return DataLoader(dataset, batch_size=self.batch_size, num_workers=self.num_workers, shuffle=False, drop_last=True)
     
+    def _maybe_save_samples(self, noisy, refs, ests):
+        if self.sample_save_dir is None or self.max_val_samples_to_save <= 0:
+            return
 
-    
+        if self._last_sample_epoch != self.current_epoch:
+            self._last_sample_epoch = self.current_epoch
+            self._saved_val_samples = 0
+
+        remaining = self.max_val_samples_to_save - self._saved_val_samples
+        if remaining <= 0:
+            return
+
+        clean = refs[0] if isinstance(refs, (list, tuple)) else refs
+        enhanced = ests[0] if isinstance(ests, (list, tuple)) else ests
+
+        saved = save_validation_samples(
+            sample_dir=self.sample_save_dir,
+            noisy=noisy,
+            clean=clean,
+            enhanced=enhanced,
+            sample_rate=self.sample_rate,
+            epoch=self.current_epoch + 1,
+            max_samples=remaining,
+            start_index=self._saved_val_samples,
+        )
+        self._saved_val_samples += saved
