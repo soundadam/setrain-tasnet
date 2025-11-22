@@ -45,8 +45,8 @@ train:
   distributed_backend: ddp #dp, ddp, ddp_cpu, ddp2
 
 resume:
-  path: ./Conv-TasNet_lightning
-  checkpoint: Conv-TasNet_lightning
+  path: 
+  checkpoint: 
   load_from: None
 # Input dataset directories for genscp.py to scan
 data_dirs:
