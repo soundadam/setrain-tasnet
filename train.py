@@ -8,7 +8,7 @@ from pathlib import Path
 from datetime import datetime
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
-from utils import snapshot_experiment
+from utils.utils import snapshot_experiment
 
 def get_experiment_name(opt):
     """生成或获取实验名称"""
@@ -53,7 +53,7 @@ def Train(opt):
     light = LitModule(**opt['light_conf'])
     light.sample_save_dir = str(sample_dir)
     # 可以在 yaml 中配置 val_samples_to_save
-    light.max_val_samples_to_save = opt['light_conf'].get('val_samples_to_save', 3)
+    light.max_val_samples_to_save = opt['val'].get('val_samples_to_save', 3)
 
     # 4. 配置 WandB
     # save_dir 指定为 exp_dir，这样 wandb 文件夹会生成在 exp_local/实验名/wandb 下，不污染根目录
@@ -102,7 +102,7 @@ def Train(opt):
         gradient_clip_val=5.0,
         callbacks=callbacks,
         logger=wandb_logger,
-        val_check_interval=1.0,
+        check_val_every_n_epoch=opt['val'].get('check_val_every_n_epoch', 1)
         # strategy='ddp_find_unused_parameters_true' # 如果是多卡可能需要这个
     )
 
@@ -117,6 +117,11 @@ def Train(opt):
 
     # 8. 开始训练
     trainer.fit(light, ckpt_path=ckpt_path)
+    print("Training finished. Starting testing with the best checkpoint...")
+    
+    # 'best' 会自动加载 checkpoint_callback 保存的 val_loss 最小的那个模型
+    # 这一步会自动调用 model.test_step
+    trainer.test(light, ckpt_path="best")
 
 
 if __name__ == "__main__":

@@ -8,8 +8,6 @@ from Loss import Loss
 from datasets_related.Datasets import Datasets
 from model import ConvTasNet
 from models.gtcrn import GTCRN
-from torchmetrics.audio.pesq import PerceptualEvaluationSpeechQuality
-from torchmetrics.audio.dnsmos import DeepNoiseSuppressionMeanOpinionScore
 from utils.utils import save_validation_samples
 from utils.scheduler import LinearWarmupCosineAnnealingLR
 class LitModule(LightningModule):
@@ -38,7 +36,7 @@ class LitModule(LightningModule):
                  num_workers=2,
                  chunk_size_in_seconds=10,
                  # 新增参数用于控制保存频率
-                 save_interval_epochs=25
+                 save_interval_epochs=5 
                  ):
         super(LitModule, self).__init__()
         self.save_hyperparameters()
@@ -48,20 +46,11 @@ class LitModule(LightningModule):
         self.train_ref_scp = train_ref_scp
         self.val_mix_scp = val_mix_scp
         self.val_ref_scp = val_ref_scp
-        # 接收测试集路径，如果没有则默认使用验证集
-        self.test_mix_scp = val_mix_scp # test_mix_scp if test_mix_scp else val_mix_scp
-        self.test_ref_scp = val_ref_scp #test_ref_scp if test_ref_scp else val_ref_scp
         self.sample_rate = sr
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.chunk_size_in_seconds = chunk_size_in_seconds
-        # --- 自动计算核数 (75%) ---
-        # if num_workers is None:
-        #     cpu_count = multiprocessing.cpu_count()
-        #     self.num_workers = int(cpu_count * 0.75)
-        #     print(f"[Init] Auto-detected {cpu_count} CPUs. Using {self.num_workers} workers for DataLoading.")
-        # else:
-        #     self.num_workers = num_workers
+        
         self.learning_rate = lr
         self.scheduler_mode = scheduler_mode
         self.scheduler_factor = scheduler_factor
@@ -77,14 +66,6 @@ class LitModule(LightningModule):
         
         # 用于在 validation_step 和 on_validation_epoch_end 之间传递数据
         self.validation_vis_batch = None 
-        # --- 初始化评测指标 (Test Metrics) ---
-        # 1. PESQ (Wideband): 只能在 CPU 上运行
-        # 设置 mode='wb' (16k)
-        self.test_pesq = PerceptualEvaluationSpeechQuality(fs=sr, mode='wb', n_processes=self.num_workers)
-        
-        # 2. DNSMOS: 可以在 GPU 上运行 (Lightning 会自动将其移到 GPU)
-        # 首次运行时会自动下载 ONNX 模型
-        self.test_dnsmos = DeepNoiseSuppressionMeanOpinionScore(fs=sr)
 
     def forward(self, x):
         return self.convtasnet(x)
@@ -95,7 +76,6 @@ class LitModule(LightningModule):
                 self.logger.experiment.define_metric("train_loss", step_metric="epoch")
                 self.logger.experiment.define_metric("val_loss", step_metric="epoch")
                 self.logger.experiment.define_metric("SI-SNR", step_metric="epoch")
-                self.logger.experiment.define_metric("lr-Adam", step_metric="epoch") 
             except AttributeError:
                 pass
 
@@ -105,8 +85,6 @@ class LitModule(LightningModule):
         ests = self.forward(mix)
         loss = self.loss_fn.compute_loss(ests, refs)
         self.log('train_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
-        # current_lr = self.trainer.optimizers[0].param_groups[0]['lr']
-        # self.log('lr', current_lr, on_step=False, on_epoch=True, prog_bar=False)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -183,35 +161,6 @@ class LitModule(LightningModule):
         # 6. 重要：清空缓存，释放内存，并防止下个 epoch 误保存
         self.validation_vis_batch = None
 
-   # --- 新增: Test Step (核心修改) ---
-    def test_step(self, batch, batch_idx):
-        mix = batch['mix']
-        refs = batch['ref']
-        
-        # 1. 推理 (Inference)
-        # ests 仍在 GPU 上
-        ests = self.forward(mix)
-
-        # 2. 计算 DNSMOS (GPU 加速)
-        # torchmetrics 的 DNSMOS 可以在 GPU 上直接计算
-        # 返回字典: {'dnsmos_p808': ..., 'dnsmos_sig': ..., 'dnsmos_bak': ..., 'dnsmos_ovrl': ...}
-        dnsmos_res = self.test_dnsmos(ests)
-        
-        # Log DNSMOS
-        self.log('test_DNSMOS_OVRL', dnsmos_res['dnsmos_ovrl'], on_step=False, on_epoch=True)
-        self.log('test_DNSMOS_SIG', dnsmos_res['dnsmos_sig'], on_step=False, on_epoch=True)
-        self.log('test_DNSMOS_BAK', dnsmos_res['dnsmos_bak'], on_step=False, on_epoch=True)
-        self.log('test_DNSMOS_P808', dnsmos_res['dnsmos_p808'], on_step=False, on_epoch=True)
-
-        # 3. 计算 PESQ (必须转移到 CPU)
-        # 注意: PESQ 计算较慢，test 阶段不要用太大的 batch_size
-        # n_processes 参数在 init 中设置，torchmetrics 会尝试并行
-        try:
-            pesq_score = self.test_pesq(ests.cpu(), refs.cpu())
-            self.log('test_PESQ', pesq_score, on_step=False, on_epoch=True)
-        except Exception as e:
-            print(f"PESQ computation failed for batch {batch_idx}: {e}")
-            
     # def configure_optimizers(self):
     #     optimizer = optim.Adam(self.parameters(), lr=self.learning_rate, weight_decay=1e-5)
         
@@ -228,7 +177,7 @@ class LitModule(LightningModule):
         # Lightning 提供了 estimated_stepping_batches 来自动计算: max_epochs * limit_train_batches / accumulate_grad_batches
         total_steps = self.trainer.estimated_stepping_batches
         
-        warmup_steps = int(total_steps * 0.15) 
+        warmup_steps = int(total_steps * 0.05) 
 
         # 使用原始的基于 Step 的 Scheduler
         scheduler = LinearWarmupCosineAnnealingLR(
@@ -261,10 +210,3 @@ class LitModule(LightningModule):
         dataset = Datasets(self.val_mix_scp, self.val_ref_scp, sr=self.sample_rate, chunk_size_in_seconds=None)
         return DataLoader(dataset, batch_size=self.batch_size, num_workers=self.num_workers, 
                           shuffle=False, drop_last=True, pin_memory=True)
-    # --- 新增: Test DataLoader ---
-    def test_dataloader(self):
-        scp_mix = self.test_mix_scp
-        scp_ref = self.test_ref_scp
-        dataset = Datasets(scp_mix, scp_ref, sr=self.sample_rate, chunk_size_in_seconds=None)
-        return DataLoader(dataset, batch_size=self.batch_size, num_workers=self.num_workers, 
-                          shuffle=False, drop_last=False, pin_memory=True)

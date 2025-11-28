@@ -7,7 +7,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 import torch.nn.functional as F
 import random
-from utils import handle_scp
+from utils.utils import handle_scp
 import numpy as np
 import soundfile as sf
 import torchaudio

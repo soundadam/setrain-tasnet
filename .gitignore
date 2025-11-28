@@ -1,5 +1,6 @@
 # wandb
 wandb/*
+exp_local/
 Conv-TasNet_lightning/
 SEtrain/
 # Byte-compiled / optimized / DLL files

@@ -30,8 +30,8 @@ light_conf:
   val_mix_scp: "{datasets_related}/cv_mix.scp"
   val_ref_scp: 
     - "{datasets_related}/cv_s1.scp"
-  chunk_size_in_seconds: 3.5 # for training only; set None for full utterance (testing&validation)
-  save_interval_epochs: 25
+  chunk_size_in_seconds: 4.0 # for training only; set None for full utterance (testing&validation)
+
 
   sr: 16000
   # DataLoader
@@ -39,15 +39,10 @@ light_conf:
   num_workers: 9
 
 train:
-  epochs: 150
+  epochs: 130
   early_stop: true
   patience: 2
-  limit_train_batches: 0.20
   distributed_backend: ddp #dp, ddp, ddp_cpu, ddp2
-val:
-  # val_check_interval: 1
-  check_val_every_n_epoch: 1
-  val_samples_to_save: 3
 
 resume:
   path: 
