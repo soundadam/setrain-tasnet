@@ -82,9 +82,6 @@ class LitModule(LightningModule):
         # 设置 mode='wb' (16k)
         self.test_pesq = PerceptualEvaluationSpeechQuality(fs=sr, mode='wb', n_processes=self.num_workers)
         
-        # 2. DNSMOS: 可以在 GPU 上运行 (Lightning 会自动将其移到 GPU)
-        # 首次运行时会自动下载 ONNX 模型
-        self.test_dnsmos = DeepNoiseSuppressionMeanOpinionScore(sr,False)
 
     def forward(self, x):
         return self.convtasnet(x)
@@ -195,7 +192,11 @@ class LitModule(LightningModule):
         # 2. 计算 DNSMOS (GPU 加速)
         # torchmetrics 的 DNSMOS 可以在 GPU 上直接计算
         # 返回字典: {'dnsmos_p808': ..., 'dnsmos_sig': ..., 'dnsmos_bak': ..., 'dnsmos_ovrl': ...}
-        dnsmos_res = self.test_dnsmos(ests)
+        # 2. DNSMOS: 可以在 GPU 上运行 (Lightning 会自动将其移到 GPU)
+        # 首次运行时会自动下载 ONNX 模型
+        test_dnsmos = DeepNoiseSuppressionMeanOpinionScore(self.sr,False)
+
+        dnsmos_res = test_dnsmos(ests)
         
         # Log DNSMOS
         self.log('test_DNSMOS_OVRL', dnsmos_res['dnsmos_ovrl'], on_step=False, on_epoch=True)

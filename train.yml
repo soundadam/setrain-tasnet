@@ -41,7 +41,7 @@ light_conf:
 train:
   epochs: 150
   early_stop: true
-  patience: 2
+  patience: 10
   limit_train_batches: 0.20
   distributed_backend: ddp #dp, ddp, ddp_cpu, ddp2
 val:
