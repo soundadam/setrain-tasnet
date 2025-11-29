@@ -84,7 +84,7 @@ class LitModule(LightningModule):
         
         # 2. DNSMOS: 可以在 GPU 上运行 (Lightning 会自动将其移到 GPU)
         # 首次运行时会自动下载 ONNX 模型
-        self.test_dnsmos = DeepNoiseSuppressionMeanOpinionScore(fs=sr)
+        self.test_dnsmos = DeepNoiseSuppressionMeanOpinionScore(sr,False)
 
     def forward(self, x):
         return self.convtasnet(x)
