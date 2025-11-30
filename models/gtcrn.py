@@ -5,6 +5,7 @@ Modified for configurability and potential performance scaling.
 import torch
 import numpy as np
 import torch.nn as nn
+from utils.dev_modules import SFE
 # from einops import rearrange
 
 
@@ -65,20 +66,7 @@ class ERB(nn.Module):
         return torch.cat([x_erb_low, x_erb_high], dim=-1)
 
 
-class SFE(nn.Module):
-    """Subband Feature Extraction"""
-    def __init__(self, kernel_size=3, stride=1):
-        super().__init__()
-        # TODO: High-Performance Tip 2: Improve Frequency Modeling
-        # Instead of Unfold+Reshape (which is hard-coded mixing), 
-        # consider using a Dilated Conv2d along the frequency axis or a large kernel (1, 7) Conv2d.
-        self.kernel_size = kernel_size
-        self.unfold = nn.Unfold(kernel_size=(1,kernel_size), stride=(1, stride), padding=(0, (kernel_size-1)//2))
-        
-    def forward(self, x):
-        """x: (B,C,T,F)"""
-        xs = self.unfold(x).reshape(x.shape[0], x.shape[1]*self.kernel_size, x.shape[2], x.shape[3])
-        return xs
+
 
 
 class TRA(nn.Module):

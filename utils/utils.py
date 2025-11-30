@@ -10,11 +10,11 @@ import logging
 import shutil
 from pathlib import Path
 from typing import Iterable, Optional
-
+from datetime import datetime
 import soundfile as sf
 import torch
 import yaml
-
+import os 
 def handle_scp(scp_path):
     '''
     Read scp file script
@@ -146,3 +146,31 @@ def save_validation_samples(
         saved += 1
 
     return saved
+
+
+def _get_experiment_name(opt):
+    """生成或获取实验名称"""
+    # 优先使用配置文件中的名称，如果没有则使用默认前缀+时间戳
+    exp_name = opt.get('name', 'gtcrn_experiment')
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return f"{exp_name}_{timestamp}"
+
+def _setup_directories(exp_name, root_dir='exp_local'):
+    """创建清晰的本地目录结构"""
+    # 结构: exp_local/实验名/ {checkpoints, val_samples, src, wandb_logs}
+    exp_dir = Path(root_dir) / exp_name
+    ckpt_dir = exp_dir / 'checkpoints'
+    sample_dir = exp_dir / 'val_samples'
+    
+    # 仅主进程创建目录
+    if _is_global_zero():
+        exp_dir.mkdir(parents=True, exist_ok=True)
+        ckpt_dir.mkdir(exist_ok=True)
+        sample_dir.mkdir(exist_ok=True)
+    
+    return exp_dir, ckpt_dir, sample_dir
+
+def _is_global_zero():
+    # 简单的 rank check 逻辑
+    rank = int(os.environ.get('RANK', 0))
+    return rank == 0

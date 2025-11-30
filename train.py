@@ -5,44 +5,19 @@ import torch
 import argparse
 import os
 from pathlib import Path
-from datetime import datetime
+
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
-from utils.utils import snapshot_experiment
+from utils.utils import snapshot_experiment, _get_experiment_name, _is_global_zero, _setup_directories
 
-def get_experiment_name(opt):
-    """生成或获取实验名称"""
-    # 优先使用配置文件中的名称，如果没有则使用默认前缀+时间戳
-    exp_name = opt.get('name', 'gtcrn_experiment')
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    return f"{exp_name}_{timestamp}"
 
-def setup_directories(exp_name, root_dir='exp_local'):
-    """创建清晰的本地目录结构"""
-    # 结构: exp_local/实验名/ {checkpoints, val_samples, src, wandb_logs}
-    exp_dir = Path(root_dir) / exp_name
-    ckpt_dir = exp_dir / 'checkpoints'
-    sample_dir = exp_dir / 'val_samples'
-    
-    # 仅主进程创建目录
-    if _is_global_zero():
-        exp_dir.mkdir(parents=True, exist_ok=True)
-        ckpt_dir.mkdir(exist_ok=True)
-        sample_dir.mkdir(exist_ok=True)
-    
-    return exp_dir, ckpt_dir, sample_dir
-
-def _is_global_zero():
-    # 简单的 rank check 逻辑
-    rank = int(os.environ.get('RANK', 0))
-    return rank == 0
 
 def Train(opt):
     # 1. 确定实验名称和目录
     # 如果是 Resume 模式，这里可能需要逻辑调整去指向旧目录，
     # 但通常 Resume 只是加载权重，产生新 Log，这里保持生成新目录的逻辑比较清晰。
-    exp_name = get_experiment_name(opt)
-    exp_dir, ckpt_dir, sample_dir = setup_directories(exp_name)
+    exp_name = _get_experiment_name(opt)
+    exp_dir, ckpt_dir, sample_dir = _setup_directories(exp_name)
 
     # 2. 代码备份 (仅主进程)
     if _is_global_zero():
@@ -59,10 +34,10 @@ def Train(opt):
     # save_dir 指定为 exp_dir，这样 wandb 文件夹会生成在 exp_local/实验名/wandb 下，不污染根目录
     wandb_logger = WandbLogger(
         name=exp_name,
-        project="setrain-tasnet",
+        project="GTCRN",
         save_dir=str(exp_dir), 
-        log_model=False,    # 关键：不上传模型到云端
-        save_code=False,    # 关键：不上传代码到云端 (本地已经 snapshot 了)
+        log_model=True,    # 关键：不上传模型到云端
+        save_code=True,    # 关键：不上传代码到云端 (本地已经 snapshot 了)
         offline=False       # 如果想完全断网跑，设为 True
     )
 

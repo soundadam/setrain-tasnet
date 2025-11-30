@@ -1,4 +1,4 @@
-gpu_ids: [0,1,2,3]
+gpu_ids: [0]
 
 paths:
   datasets_related: datasets_related
@@ -18,10 +18,9 @@ light_conf:
     - "{datasets_related}/cv_s1.scp"
   chunk_size_in_seconds: 10 # for training only; set None for full utterance (testing&validation)
   save_interval_epochs: 25
-
   sr: 16000
   # DataLoader
-  batch_size: 16
+  batch_size: 36
   num_workers: 9
 
 train:
