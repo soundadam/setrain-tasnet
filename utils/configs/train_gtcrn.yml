@@ -27,7 +27,7 @@ train:
   epochs: 200
   early_stop: true
   patience: 10
-  limit_train_batches: 0.25
+  limit_train_batches: 0.4
   distributed_backend: ddp #dp, ddp, ddp_cpu, ddp2
 val:
   # val_check_interval: 1
