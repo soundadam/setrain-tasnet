@@ -1,20 +1,16 @@
 """
 GTCRN: ShuffleNetV2 + SFE + TRA + 2 DPGRNN
-Modified for configurability and potential performance scaling.
+Ultra tiny, 33.0 MMACs, 23.67 K params
 """
 import torch
 import numpy as np
 import torch.nn as nn
 from einops import rearrange
-# from utils.dev_modules import SFE
+
 
 class ERB(nn.Module):
     def __init__(self, erb_subband_1, erb_subband_2, nfft=512, high_lim=8000, fs=16000):
         super().__init__()
-        # TODO: High-Performance Tip 1: Relax Band Merging
-        # The current compression (192 high-freq bins -> 64 ERB bins) is lossy.
-        # Try increasing erb_subband_2 (e.g., to 96 or 128) to preserve more high-freq details.
-        # Alternatively, replace fixed ERB filters with a learnable 1D Conv layer.
         erb_filters = self.erb_filter_banks(erb_subband_1, erb_subband_2, nfft, high_lim, fs)
         nfreqs = nfft//2 + 1
         self.erb_subband_1 = erb_subband_1
@@ -82,9 +78,6 @@ class TRA(nn.Module):
     """Temporal Recurrent Attention"""
     def __init__(self, channels):
         super().__init__()
-        # TODO: High-Performance Tip 3: Add Frequency Attention
-        # TRA only models time. Adding a lightweight SE-Block (Squeeze-and-Excitation) 
-        # for Frequency or Channels here can boost performance significantly.
         self.att_gru = nn.GRU(channels, channels*2, 1, batch_first=True)
         self.att_fc = nn.Linear(channels*2, channels)
         self.att_act = nn.Sigmoid()
@@ -124,22 +117,9 @@ class GTConvBlock(nn.Module):
         self.point_conv1 = conv_module(in_channels//2*3, hidden_channels, 1)
         self.point_bn1 = nn.BatchNorm2d(hidden_channels)
         self.point_act = nn.PReLU()
-        # ================= 修改开始 =================
-        # 修正 Padding 逻辑：
-        # 对于 Encoder (Conv2d)，我们使用 F.pad 实现了因果填充 (Time轴)，
-        # 所以卷积层本身在 Time 轴的 padding 必须为 0，只保留 Freq 轴的 padding。
-        if not use_deconv:
-            # padding[0] 是 Time轴, padding[1] 是 Freq轴
-            # 强制 Time轴 padding 为 0，Freq轴保持传入的值
-            real_padding = (0, padding[1])
-        else:
-            # Decoder (Deconv) 保持原样，它的 padding 含义不同 (用于裁剪输出)
-            real_padding = padding
-        # TODO: High-Performance Tip 4: Large Kernels
-        # Consider increasing kernel_size from (3,3) to (5,5) or (7,7) for the depth_conv.
-        # This is a proven technique in ConvNeXt and modern speech models.
+
         self.depth_conv = conv_module(hidden_channels, hidden_channels, kernel_size,
-                                            stride=stride, padding=real_padding,
+                                            stride=stride, padding=padding,
                                             dilation=dilation, groups=hidden_channels)
         self.depth_bn = nn.BatchNorm2d(hidden_channels)
         self.depth_act = nn.PReLU()
@@ -150,29 +130,10 @@ class GTConvBlock(nn.Module):
         self.tra = TRA(in_channels//2)
 
     def shuffle(self, x1, x2):
-        # """x1, x2: (B,C,T,F)"""
-        # x = torch.stack([x1, x2], dim=1)
-        # x = x.transpose(1, 2).contiguous()  # (B,C,2,T,F)
-        # x = rearrange(x, 'b c g t f -> b (c g) t f')  # (B,2C,T,F)
         """x1, x2: (B,C,T,F)"""
-        x = torch.stack([x1, x2], dim=1)  # (B, 2, C, T, F)
-        
-        # 替换 einops.rearrange: 'b g c t f -> b (c g) t f'
-        # 注意：你的原代码是 stack dim=1 (Group)，原 rearrange 是 'b c g t f'？
-        # 让我们看你的原代码：
-        # x = torch.stack([x1, x2], dim=1) -> Shape (B, 2, C, T, F)
-        # x = rearrange(x, 'b g c t f -> b (c g) t f') 
-        # 你的原代码写的是 'b c g t f -> ...'，这可能和 stack dim=1 不匹配？
-        
-        # 修正后的 PyTorch 原生写法 (假设 stack 在 dim 2, 或者 transpose):
-        # 目标是：把两个分支的通道交错排列
-        
-        # 1. Stack
-        x = torch.stack([x1, x2], dim=2) # (B, C, 2, T, F)
-        
-        # 2. Flatten C and 2
-        B, C, G, T, F = x.shape
-        x = x.view(B, C * G, T, F) # (B, 2C, T, F)
+        x = torch.stack([x1, x2], dim=1)
+        x = x.transpose(1, 2).contiguous()  # (B,C,2,T,F)
+        x = rearrange(x, 'b c g t f -> b (c g) t f')  # (B,2C,T,F)
         return x
 
     def forward(self, x):
@@ -199,9 +160,6 @@ class GRNN(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.bidirectional = bidirectional
-        # TODO: High-Performance Tip 5: Unlock Grouping
-        # Splitting RNN into groups saves paramters but hurts information flow.
-        # If computation allows, remove the split and use a single large GRU.
         self.rnn1 = nn.GRU(input_size//2, hidden_size//2, num_layers, batch_first=batch_first, bidirectional=bidirectional)
         self.rnn2 = nn.GRU(input_size//2, hidden_size//2, num_layers, batch_first=batch_first, bidirectional=bidirectional)
 
@@ -227,27 +185,19 @@ class GRNN(nn.Module):
     
 class DPGRNN(nn.Module):
     """Grouped Dual-path RNN"""
-    def __init__(self, input_size, width, hidden_size, use_grouped=True, **kwargs):
+    def __init__(self, input_size, width, hidden_size, **kwargs):
         super(DPGRNN, self).__init__(**kwargs)
         self.input_size = input_size
         self.width = width
         self.hidden_size = hidden_size
-        
-        # Intra RNN
-        
+
+        # self.intra_rnn = GRNN(input_size=input_size, hidden_size=hidden_size//2, bidirectional=True)
+        self.intra_rnn = nn.GRU(input_size=input_size, hidden_size=hidden_size//2, bidirectional=True)
         self.intra_fc = nn.Linear(hidden_size, hidden_size)
         self.intra_ln = nn.LayerNorm((width, hidden_size), eps=1e-8)
 
-        # Inter RNN
-        # Configurable Grouped RNN
-        if use_grouped:
-            self.inter_rnn = GRNN(input_size=input_size, hidden_size=hidden_size, batch_first=True, bidirectional=False)
-            self.intra_rnn = GRNN(input_size=input_size, hidden_size=hidden_size//2, bidirectional=True)
-        else:
-            # Use standard GRU if grouping is disabled (Better performance)
-            self.inter_rnn = nn.GRU(input_size=input_size, hidden_size=hidden_size, batch_first=True, bidirectional=False)
-            self.intra_rnn = nn.GRU(input_size=input_size, hidden_size=hidden_size//2, batch_first=True, bidirectional=True)
-            
+        # self.inter_rnn = GRNN(input_size=input_size, hidden_size=hidden_size, bidirectional=False)
+        self.inter_rnn = nn.GRU(input_size=input_size, hidden_size=hidden_size, bidirectional=False)
         self.inter_fc = nn.Linear(hidden_size, hidden_size)
         self.inter_ln = nn.LayerNorm(((width, hidden_size)), eps=1e-8)
     
@@ -278,16 +228,14 @@ class DPGRNN(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, base_channels=16, kernel_size=(3,3)):
+    def __init__(self):
         super().__init__()
-        # 3 (input chan) * 3 (SFE kernel) = 9
         self.en_convs = nn.ModuleList([
-            ConvBlock(3*3, base_channels, (1,5), stride=(1,2), padding=(0,2), use_deconv=False, is_last=False),
-            ConvBlock(base_channels, base_channels, (1,5), stride=(1,2), padding=(0,2), groups=2, use_deconv=False, is_last=False),
-            # Parametric Kernel Size
-            GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), padding=((kernel_size[0]-1)//2, (kernel_size[1]-1)//2), dilation=(1,1), use_deconv=False),
-            GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), padding=((kernel_size[0]-1)//2, (kernel_size[1]-1)//2), dilation=(2,1), use_deconv=False),
-            GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), padding=((kernel_size[0]-1)//2, (kernel_size[1]-1)//2), dilation=(5,1), use_deconv=False)
+            ConvBlock(3*3, 16, (1,5), stride=(1,2), padding=(0,2), use_deconv=False, is_last=False),
+            ConvBlock(16, 16, (1,5), stride=(1,2), padding=(0,2), groups=2, use_deconv=False, is_last=False),
+            GTConvBlock(16, 16, (3,3), stride=(1,1), padding=(0,1), dilation=(1,1), use_deconv=False),
+            GTConvBlock(16, 16, (3,3), stride=(1,1), padding=(0,1), dilation=(2,1), use_deconv=False),
+            GTConvBlock(16, 16, (3,3), stride=(1,1), padding=(0,1), dilation=(5,1), use_deconv=False)
         ])
 
     def forward(self, x):
@@ -299,26 +247,14 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, base_channels=16, kernel_size=(3,3)):
+    def __init__(self):
         super().__init__()
-        # 辅助函数：计算 padding
-        # pad_t: 时间轴 padding。对于 Decoder，必须严格等于 (K-1)*D，才能将 F.pad 增加的长度以及 Deconv 自身的扩展全部抵消。
-        pad_t = lambda k, d: (k - 1) * d
-        # pad_f: 频率轴 padding。保持为 "Same Padding"，即 (K-1)//2。
-        pad_f = lambda k: (k - 1) // 2
-        
-        k_t, k_f = kernel_size
-        
         self.de_convs = nn.ModuleList([
-            # 修正后的 padding 计算：
-            GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), 
-                        padding=(pad_t(k_t, 5), pad_f(k_f)), dilation=(5,1), use_deconv=True),
-            GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), 
-                        padding=(pad_t(k_t, 2), pad_f(k_f)), dilation=(2,1), use_deconv=True),
-            GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), 
-                        padding=(pad_t(k_t, 1), pad_f(k_f)), dilation=(1,1), use_deconv=True),
-            ConvBlock(base_channels, base_channels, (1,5), stride=(1,2), padding=(0,2), groups=2, use_deconv=True, is_last=False),
-            ConvBlock(base_channels, 2, (1,5), stride=(1,2), padding=(0,2), use_deconv=True, is_last=True)
+            GTConvBlock(16, 16, (3,3), stride=(1,1), padding=(2*5,1), dilation=(5,1), use_deconv=True),
+            GTConvBlock(16, 16, (3,3), stride=(1,1), padding=(2*2,1), dilation=(2,1), use_deconv=True),
+            GTConvBlock(16, 16, (3,3), stride=(1,1), padding=(2*1,1), dilation=(1,1), use_deconv=True),
+            ConvBlock(16, 16, (1,5), stride=(1,2), padding=(0,2), groups=2, use_deconv=True, is_last=False),
+            ConvBlock(16, 2, (1,5), stride=(1,2), padding=(0,2), use_deconv=True, is_last=True)
         ])
 
     def forward(self, x, en_outs):
@@ -345,11 +281,7 @@ class GTCRN(nn.Module):
         self,
         n_fft=512,
         hop_len=256,
-        win_len=512,
-        # --- Configurable Parameters ---
-        base_channels=16,      # Increase to 32 or 64 for performance
-        kernel_size=(3,3),     # Increase to (5,5) or (7,7)
-        use_grouped_rnn=True   # Set to False to disable grouping (increase params/performance)
+        win_len=512
     ):
         super().__init__()
         self.n_fft = n_fft
@@ -359,16 +291,12 @@ class GTCRN(nn.Module):
         self.erb = ERB(65, 64)
         self.sfe = SFE(3, 1)
 
-        self.encoder = Encoder(base_channels=base_channels, kernel_size=kernel_size)
+        self.encoder = Encoder()
         
-        # Adjust hidden size based on base_channels (approximation of original ratio)
-        # Original: base=16, rnn_hidden=33 (approx 2x)
-        rnn_hidden = base_channels * 2 + 1 
+        self.dpgrnn1 = DPGRNN(16, 33, 16)
+        self.dpgrnn2 = DPGRNN(16, 33, 16)
         
-        self.dpgrnn1 = DPGRNN(base_channels, rnn_hidden, base_channels, use_grouped=use_grouped_rnn)
-        self.dpgrnn2 = DPGRNN(base_channels, rnn_hidden, base_channels, use_grouped=use_grouped_rnn)
-        
-        self.decoder = Decoder(base_channels=base_channels, kernel_size=kernel_size)
+        self.decoder = Decoder()
 
         self.mask = Mask()
 
@@ -415,11 +343,9 @@ class GTCRN(nn.Module):
 
 
 if __name__ == "__main__":
-    model = GTCRN(use_grouped_rnn=True).eval()
+    model = GTCRN().eval()
 
-    # from ptflops import get_model_complexity_info
-    # """complexity count"""
-    # dummy = torch.randn(1, 16000)   
+    """complexity count"""
     from ptflops import get_model_complexity_info
     flops, params = get_model_complexity_info(model, (16000,), as_strings=True,
                                             print_per_layer_stat=False, verbose=True)
@@ -427,12 +353,11 @@ if __name__ == "__main__":
     for p in model.parameters():
         params += p.numel()
     print(flops, params/1e3)
-    
 
     """causality check"""
     a = torch.randn(1, 16000)
     b = torch.randn(1, 16000)
-    c = 1e12*torch.randn(1, 16000)
+    c = torch.randn(1, 16000)
     x1 = torch.cat([a, b], dim=1)
     x2 = torch.cat([a, c], dim=1)
 
