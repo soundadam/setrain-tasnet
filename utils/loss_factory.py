@@ -60,7 +60,7 @@ class HybridLoss(nn.Module):
             if need_sisnr == False: 
                 return self.lamda_ri*(real_loss + imag_loss) + self.lamda_mag*mag_loss + sisnr
             else:
-                return self.lamda_ri*(real_loss + imag_loss) + self.lamda_mag*mag_loss + sisnr, sisnr
+                return self.lamda_ri*(real_loss + imag_loss) + self.lamda_mag*mag_loss + sisnr, -sisnr
 
 
 class STFTLoss(nn.Module):
