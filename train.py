@@ -1,6 +1,6 @@
 from option import parse
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
-from LitModule import LitModule 
+from models.LitGTCRN import LitModule 
 import torch
 import argparse
 import os
@@ -13,7 +13,7 @@ from utils.utils import snapshot_experiment
 def get_experiment_name(opt):
     """生成或获取实验名称"""
     # 优先使用配置文件中的名称，如果没有则使用默认前缀+时间戳
-    exp_name = opt.get('name', 'tasnet_experiment')
+    exp_name = opt.get('name', 'gtcrn_experiment')
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     return f"{exp_name}_{timestamp}"
 

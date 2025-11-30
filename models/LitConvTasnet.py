@@ -6,7 +6,7 @@ from pytorch_lightning import LightningModule
 
 from Loss import Loss
 from datasets_related.Datasets import Datasets
-from model import ConvTasNet
+from models.convtasnet import ConvTasNet
 from models.gtcrn import GTCRN
 from torchmetrics.audio.pesq import PerceptualEvaluationSpeechQuality
 from torchmetrics.audio.dnsmos import DeepNoiseSuppressionMeanOpinionScore
@@ -55,13 +55,6 @@ class LitModule(LightningModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.chunk_size_in_seconds = chunk_size_in_seconds
-        # --- 自动计算核数 (75%) ---
-        # if num_workers is None:
-        #     cpu_count = multiprocessing.cpu_count()
-        #     self.num_workers = int(cpu_count * 0.75)
-        #     print(f"[Init] Auto-detected {cpu_count} CPUs. Using {self.num_workers} workers for DataLoading.")
-        # else:
-        #     self.num_workers = num_workers
         self.learning_rate = lr
         self.scheduler_mode = scheduler_mode
         self.scheduler_factor = scheduler_factor

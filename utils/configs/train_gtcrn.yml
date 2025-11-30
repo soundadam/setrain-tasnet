@@ -5,23 +5,9 @@ paths:
   dns_root: ../DNS3
 
 light_conf:
-  N: 512
-  L: 16
-  B: 128
-  H: 512
-  P: 3
-  X: 8
-  R: 3
-  norm: gLN
-  num_spks: 1 # for se usage
-  activate: relu
-  causal: false
   # optimizer
   lr: !!float 1e-3
   # scheduler
-  scheduler_mode: min
-  scheduler_factor: 0.5
-  patience: 2
   # Dataset (.scp output paths; relative to repo). genscp.py will create these.
   train_mix_scp: "{datasets_related}/tr_mix.scp"
   train_ref_scp: 
@@ -30,19 +16,24 @@ light_conf:
   val_mix_scp: "{datasets_related}/cv_mix.scp"
   val_ref_scp: 
     - "{datasets_related}/cv_s1.scp"
-  chunk_size_in_seconds: 4.0 # for training only; set None for full utterance (testing&validation)
-
+  chunk_size_in_seconds: 10 # for training only; set None for full utterance (testing&validation)
+  save_interval_epochs: 25
 
   sr: 16000
   # DataLoader
-  batch_size: 3
+  batch_size: 16
   num_workers: 9
 
 train:
-  epochs: 130
+  epochs: 200
   early_stop: true
-  patience: 2
+  patience: 10
+  limit_train_batches: 0.25
   distributed_backend: ddp #dp, ddp, ddp_cpu, ddp2
+val:
+  # val_check_interval: 1
+  check_val_every_n_epoch: 1
+  val_samples_to_save: 3
 
 resume:
   path: 
