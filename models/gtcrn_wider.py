@@ -296,7 +296,6 @@ class Encoder(nn.Module):
         # 3 (input chan) * 3 (SFE kernel) = 9
         self.en_convs = nn.ModuleList([
             ConvBlock(3*3, base_channels, (1,5), stride=(1,2), padding=(0,2), use_deconv=False, is_last=False),
-            ConvBlock(base_channels, base_channels, (1,5), stride=(1,2), padding=(0,2), groups=2, use_deconv=False, is_last=False),
             # Parametric Kernel Size
             GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), padding=(0, (kernel_size[1]-1)//2), dilation=(1,1), use_deconv=False, use_layer_norm=use_layer_norm),
             GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), padding=(0, (kernel_size[1]-1)//2), dilation=(2,1), use_deconv=False, use_layer_norm=use_layer_norm),
@@ -330,7 +329,6 @@ class Decoder(nn.Module):
                         padding=(pad_t(k_t, 2), pad_f(k_f)), dilation=(2,1), use_deconv=True, use_layer_norm=False),
             GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), 
                         padding=(pad_t(k_t, 1), pad_f(k_f)), dilation=(1,1), use_deconv=True, use_layer_norm=False),
-            ConvBlock(base_channels, base_channels, (1,5), stride=(1,2), padding=(0,2), groups=2, use_deconv=True, is_last=False),
             ConvBlock(base_channels, 2, (1,5), stride=(1,2), padding=(0,2), use_deconv=True, is_last=True)
         ])
 
@@ -374,9 +372,7 @@ class GTCRN(nn.Module):
 
         self.encoder = Encoder(base_channels=base_channels, kernel_size=kernel_size)
         
-        # Adjust hidden size based on base_channels (approximation of original ratio)
-        # Original: base=16, rnn_hidden=33 (approx 2x)
-        width = 33
+        width = 65 # calconv1d(129, ker=5, stride=2, padding=2, dialation=1, groups=1)
         
         self.dpgrnn1 = DPGRNN(base_channels, width, base_channels, use_grouped=use_grouped_rnn)
         self.dpgrnn2 = DPGRNN(base_channels, width, base_channels, use_grouped=use_grouped_rnn)

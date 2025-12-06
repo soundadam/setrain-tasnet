@@ -1,11 +1,3 @@
-# -*- encoding: utf-8 -*-
-'''
-@Filename    :model.py
-@Time        :2020/07/09 18:22:54
-@Author      :Kai Li
-@Version     :1.0
-'''
-
 import os
 import torch
 
@@ -18,7 +10,6 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
 sys.path.append(project_root)
 
-from utils.Loss import Loss
 
 class ChannelWiseLayerNorm(nn.LayerNorm):
     """
@@ -150,93 +141,3 @@ class Separation(nn.Module):
 
     def forward(self, x):
         return self.sep(x)
-
-
-class Encoder(nn.Module):
-    def __init__(self, in_channels=1, out_channels=512, bottleneck=128, kernel_size=16, norm_type='gLN'):
-        super(Encoder, self).__init__()
-        self.encoder = nn.Conv1d(
-            in_channels, out_channels, kernel_size, kernel_size//2, padding=0)
-        self.norm = select_norm(norm_type, out_channels)
-        self.conv1x1 = nn.Conv1d(out_channels, bottleneck, 1)
-
-    def forward(self, x):
-        if x.dim() >= 3:
-            raise RuntimeError(
-                "{} accept 1/2D tensor as input, but got {:d}".format(
-                    self.__name__, x.dim()))
-        # when inference, only one utt
-        if x.dim() == 1:
-            x = torch.unsqueeze(x, 0)
-        if x.dim() == 2:
-            x = torch.unsqueeze(x, 1)
-        x = self.encoder(x)
-        w = self.norm(x)
-        w = self.conv1x1(w)
-        return x, w
-
-
-class Decoder(nn.Module):
-    def __init__(self, in_channels=512, out_channels=1, kernel_size=16):
-        super(Decoder, self).__init__()
-        self.decoder = nn.ConvTranspose1d(
-            in_channels, out_channels, kernel_size, kernel_size//2, padding=0, bias=True)
-
-    def forward(self, x):
-        x = self.decoder(x)
-        return torch.squeeze(x)
-
-
-class ConvTasNet(nn.Module):
-    def __init__(self,
-                 N=512,
-                 L=16,
-                 B=128,
-                 H=512,
-                 P=3,
-                 X=8,
-                 R=3,
-                 norm="gLN",
-                 num_spks=2,
-                 activate="relu",
-                 causal=False
-                 ):
-        super(ConvTasNet, self).__init__()
-        # -----------------------model-----------------------
-        self.encoder = Encoder(1, N, B, L, norm)
-        self.separation = Separation(B, H, P, norm, X, R)
-        self.decoder = Decoder(H, 1, L)
-        self.mask = nn.Conv1d(B, H*num_spks, 1, 1)
-        supported_nonlinear = {
-            "relu": F.relu,
-            "sigmoid": torch.sigmoid,
-            "softmax": F.softmax
-        }
-        if activate not in supported_nonlinear:
-            raise RuntimeError("Unsupported non-linear function: {}",
-                               format(activate))
-        self.non_linear = supported_nonlinear[activate]
-        self.num_spks = num_spks
-
-    def forward(self, x):
-        x, w = self.encoder(x)
-        w = self.separation(w)
-        m = self.mask(w)
-        m = torch.chunk(m, chunks=self.num_spks, dim=1)
-        m = self.non_linear(torch.stack(m, dim=0))
-        d = [x*m[i] for i in range(self.num_spks)]
-        s = [self.decoder(d[i]) for i in range(self.num_spks)]
-        return s
-
-def check_parameters(net):
-    '''
-        Returns module parameters. Mb
-    '''
-    parameters = sum(param.numel() for param in net.parameters())
-    return parameters / 10**6
-
-if __name__ == "__main__":
-    conv = ConvTasNet()
-    a = torch.randn(2, 16000)
-    s = conv(a)
-    print(check_parameters(conv))

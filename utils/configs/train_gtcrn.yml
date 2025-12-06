@@ -20,14 +20,19 @@ light_conf:
   save_interval_epochs: 25
   sr: 16000
   # DataLoader
-  batch_size: 36
-  num_workers: 9
+  batch_size: 4
+  num_workers: 4
+  base_channels: 24
+  # useLayerNorm: False
+  kernel_size: 3
+  model_arch: 'base'
 
+  
 train:
   epochs: 200
   early_stop: true
   patience: 10
-  limit_train_batches: 0.4
+  limit_train_batches: 0.15
   distributed_backend: ddp #dp, ddp, ddp_cpu, ddp2
 val:
   # val_check_interval: 1

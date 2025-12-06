@@ -151,10 +151,14 @@ def save_validation_samples(
 def _get_experiment_name(opt):
     """生成或获取实验名称"""
     # 优先使用配置文件中的名称，如果没有则使用默认前缀+时间戳
-    exp_name = opt.get('name', 'gtcrn_experiment')
+    exp_name = opt.get('name', 'gtcrnExp')
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     return f"{exp_name}_{timestamp}"
-
+def _add_timestamp(exp_name):
+    """生成或获取实验名称"""
+    # 优先使用配置文件中的名称，如果没有则使用默认前缀+时间戳
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return f"{exp_name}_{timestamp}"
 def _setup_directories(exp_name, root_dir='exp_local'):
     """创建清晰的本地目录结构"""
     # 结构: exp_local/实验名/ {checkpoints, val_samples, src, wandb_logs}

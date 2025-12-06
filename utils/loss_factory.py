@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-
-
+# from torchmetrics.functional.audio import scale_invariant_signal_distortion_ratio as sisnr
+from torchmetrics.audio import ScaleInvariantSignalDistortionRatio as SISNR
 class HybridLoss(nn.Module):
     def __init__(
         self,
@@ -21,7 +21,7 @@ class HybridLoss(nn.Module):
         self.eps = eps
         self.lamda_ri = lamda_ri
         self.lamda_mag = lamda_mag
-
+        self.sisnr_fun = SISNR()
     def compute_loss(self, y_pred, y_true, need_sisnr=False):
             # ================== 兼容性修改开始 ==================
             # 检查输入是否为 list 或 tuple，如果是，则取出第一个元素
@@ -50,17 +50,20 @@ class HybridLoss(nn.Module):
             imag_loss = torch.mean((pred_stft_c.imag - true_stft_c.imag)**2)
             mag_loss = torch.mean((pred_mag**self.c - true_mag**self.c)**2)
 
+
             # SISNR loss
-            y_norm = torch.sum(y_true * y_pred, dim=-1, keepdim=True) * y_true / (torch.sum(torch.square(y_true),dim=-1,keepdim=True) + 1e-8)
-            sisnr = - 2*torch.log10(
-                torch.norm(y_norm, dim=-1, keepdim=True) / 
-                torch.norm(y_pred - y_norm, dim=-1, keepdim=True).clamp(self.eps) + 
-                self.eps
-            ).mean()
+            # sisnr_num = sisnr(y_pred, y_true)
+            sisnr_num = self.sisnr_fun(y_pred, y_true)
+            # y_norm = torch.sum(y_true * y_pred, dim=-1, keepdim=True) * y_true / (torch.sum(torch.square(y_true),dim=-1,keepdim=True) + 1e-8)
+            # sisnr = - 2*torch.log10(
+            #     torch.norm(y_norm, dim=-1, keepdim=True) / 
+            #     torch.norm(y_pred - y_norm, dim=-1, keepdim=True).clamp(self.eps) + 
+            #     self.eps
+            # ).mean()
             if need_sisnr == False: 
-                return self.lamda_ri*(real_loss + imag_loss) + self.lamda_mag*mag_loss + sisnr
+                return self.lamda_ri*(real_loss + imag_loss) + self.lamda_mag*mag_loss - 0.1* sisnr_num 
             else:
-                return self.lamda_ri*(real_loss + imag_loss) + self.lamda_mag*mag_loss + sisnr, -sisnr
+                return self.lamda_ri*(real_loss + imag_loss) + self.lamda_mag*mag_loss - 0.1 * sisnr_num , sisnr_num 
 
 
 class STFTLoss(nn.Module):

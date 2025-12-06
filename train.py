@@ -36,9 +36,9 @@ def Train(opt):
         name=exp_name,
         project="GTCRN",
         save_dir=str(exp_dir), 
-        log_model=True,    # 关键：不上传模型到云端
-        save_code=True,    # 关键：不上传代码到云端 (本地已经 snapshot 了)
-        offline=False       # 如果想完全断网跑，设为 True
+        log_model=False,   
+        save_code=True,  
+        offline=False      
     )
 
     # 5. 配置 Callbacks
@@ -91,6 +91,7 @@ def Train(opt):
         ckpt_path = None
 
     # 8. 开始训练
+    torch.set_float32_matmul_precision('medium')
     trainer.fit(light, ckpt_path=ckpt_path)
     print("Training finished. Starting testing with the best checkpoint...")
     
@@ -101,7 +102,7 @@ def Train(opt):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--opt', type=str, default='train.yml', help='Path to option YAML file.')
+    parser.add_argument('--opt', type=str, default='utils/configs/train_gtcrn.yml', help='Path to option YAML file.')
     args = parser.parse_args()
 
     opt = parse(args.opt, is_train=True)

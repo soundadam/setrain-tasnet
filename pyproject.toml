@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "einops>=0.8.1",
+    "ipykernel>=7.1.0",
     "onnxruntime-gpu>=1.23.2",
     "ptflops>=0.7.5",
     "pytorch-lightning>=2.5.6",

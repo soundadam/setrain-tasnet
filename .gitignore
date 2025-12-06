@@ -1,3 +1,7 @@
+# dev / test
+test/
+models/dev
+
 # wandb
 wandb/*
 exp_local/

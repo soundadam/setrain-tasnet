@@ -291,16 +291,18 @@ class DPGRNN(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, base_channels=16, kernel_size=(3,3), use_layer_norm=False):
+    def __init__(self, base_channels=16, kernel_size=(3,3)):
         super().__init__()
         # 3 (input chan) * 3 (SFE kernel) = 9
         self.en_convs = nn.ModuleList([
             ConvBlock(3*3, base_channels, (1,5), stride=(1,2), padding=(0,2), use_deconv=False, is_last=False),
             ConvBlock(base_channels, base_channels, (1,5), stride=(1,2), padding=(0,2), groups=2, use_deconv=False, is_last=False),
             # Parametric Kernel Size
-            GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), padding=(0, (kernel_size[1]-1)//2), dilation=(1,1), use_deconv=False, use_layer_norm=use_layer_norm),
-            GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), padding=(0, (kernel_size[1]-1)//2), dilation=(2,1), use_deconv=False, use_layer_norm=use_layer_norm),
-            GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), padding=(0, (kernel_size[1]-1)//2), dilation=(5,1), use_deconv=False, use_layer_norm=use_layer_norm)
+            GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), padding=(0, (kernel_size[1]-1)//2), dilation=(1,1), use_deconv=False, use_layer_norm=False),
+            GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), padding=(0, (kernel_size[1]-1)//2), dilation=(2,1), use_deconv=False, use_layer_norm=False),
+            GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), padding=(0, (kernel_size[1]-1)//2), dilation=(3,1), use_deconv=False, use_layer_norm=False),
+            GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), padding=(0, (kernel_size[1]-1)//2), dilation=(2,1), use_deconv=False, use_layer_norm=False),
+            GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), padding=(0, (kernel_size[1]-1)//2), dilation=(1,1), use_deconv=False, use_layer_norm=False)
         ])
 
     def forward(self, x):
@@ -325,7 +327,11 @@ class Decoder(nn.Module):
         self.de_convs = nn.ModuleList([
             # 修正后的 padding 计算：
             GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), 
-                        padding=(pad_t(k_t, 5), pad_f(k_f)), dilation=(5,1), use_deconv=True, use_layer_norm=False),
+                        padding=(pad_t(k_t, 1), pad_f(k_f)), dilation=(1,1), use_deconv=True, use_layer_norm=False),
+            GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), 
+                        padding=(pad_t(k_t, 2), pad_f(k_f)), dilation=(2,1), use_deconv=True, use_layer_norm=False),
+            GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), 
+                        padding=(pad_t(k_t, 3), pad_f(k_f)), dilation=(3,1), use_deconv=True, use_layer_norm=False),
             GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), 
                         padding=(pad_t(k_t, 2), pad_f(k_f)), dilation=(2,1), use_deconv=True, use_layer_norm=False),
             GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), 

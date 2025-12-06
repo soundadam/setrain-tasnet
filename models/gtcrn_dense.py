@@ -290,12 +290,123 @@ class DPGRNN(nn.Module):
         return dual_out
 
 
+class HarmoConvBlock(nn.Module):
+    def __init__(self, channels, n_layers=4, kernel_size=(1, 3),use_deconv=False):
+        super().__init__()
+        modules = []
+        conv_module = nn.ConvTranspose2d if use_deconv else nn.Conv2d
+        
+        for i in range(n_layers):
+            dilation = 2**(i+1)
+            pad_f = dilation * (kernel_size[1] - 1) // 2
+            
+            modules.append(nn.Sequential(
+                conv_module(
+                    in_channels=channels, 
+                    out_channels=channels, 
+                    kernel_size=kernel_size, 
+                    stride=(1, 1),             # 修改点：保持 stride=1
+                    padding=(0, pad_f),        # 修改点：根据 dilation 动态 padding
+                    dilation=(1, dilation),    # 频域膨胀
+                    groups=1
+                ),
+                nn.BatchNorm2d(channels),      # 修改点：加入 BN
+                nn.GELU()                     # 修改点：加入激活函数
+            ))
+            
+        self.convs = nn.Sequential(*modules)
+        
+        # 可选：最后加一个 1x1 卷积融合信息
+        # self.fusion = nn.Conv2d(channels, channels, 1)
+
+    def forward(self, x):
+        # x: (B, C, T, F)
+        res = x
+        out = self.convs(x)
+        # out = self.fusion(out)
+        return out + res  # 残差连接，防止梯度消失
+    
+def convsubblock(in_channels=16, out_channels=2, kernel_size=(1, 3), dilation=8, use_deconv=False):
+    conv_module = nn.ConvTranspose2d if use_deconv else nn.Conv2d
+    pad_f = dilation * (kernel_size[1] - 1) // 2
+        
+    convs = conv_module(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, 
+            stride=(1, 1), padding=(0, pad_f), dilation=(1, dilation), groups=1)
+    return nn.Sequential(convs, nn.BatchNorm2d(out_channels), nn.GELU())
+
+
+class DenseBlock(nn.Module):
+    def __init__(self, in_channels=16, growth_rate=2, num_convs = 4, use_deconv=False):
+        super(DenseBlock, self).__init__()
+        layer = []
+        for i in range(num_convs):
+            dilation = 2**(i+1)
+            layer.append(convsubblock(in_channels=in_channels+growth_rate*i, out_channels=2, dilation=dilation, use_deconv=use_deconv))
+        self.net = nn.Sequential(*layer)
+
+    def forward(self, X):
+        for blk in self.net:
+            Y = blk(X)
+            # Concatenate input and output of each block along the channels
+            X = torch.cat((X, Y), dim=1)
+        return X    
+class DenseDecoderBlock(nn.Module):
+    """
+    放在 Decoder 中：
+    1. 接收 DenseBlock 的输出 (高通道数)
+    2. 使用 1x1 卷积压缩回 target_channels
+    3. 使用 Residual Block 进行特征整理 (保持 target_channels 不变)
+    """
+    def __init__(self, in_channels_from_encoder, target_channels, growth_rate=2, num_convs=4):
+        super(DenseDecoderBlock, self).__init__()
+        
+        # 1. 压缩层 (Transition / Fusion Layer)
+        # 将膨胀的通道数压回目标通道数 (例如压回 base_channels)
+        self.fusion = nn.Sequential(
+            nn.Conv2d(in_channels_from_encoder, target_channels, kernel_size=1, bias=False),
+            nn.BatchNorm2d(target_channels),
+            nn.PReLU()
+        )
+        
+        # 2. 细化层 (Refinement)
+        # 模仿 Encoder 的 Dilation 结构，但使用 Residual 连接而不是 Dense 连接
+        # 这样可以保持通道数恒定，适合解码
+        self.layers = nn.ModuleList()
+        for i in range(num_convs):
+            # 为了对称，Decoder 通常使用与 Encoder 相同或相反顺序的 dilation
+            # 这里我们使用相同顺序，或者你可以用 reversed(range(num_convs))
+            dilation = 2**(i+1) 
+            
+            self.layers.append(
+                # 这里复用 convsubblock，但输入输出通道保持一致
+                convsubblock(
+                    in_channels=target_channels, 
+                    out_channels=target_channels, # 保持通道不变
+                    dilation=dilation
+                )
+            )
+
+    def forward(self, x):
+        # x shape: [B, C_high, T, F]
+        
+        # Step 1: 融合所有 Dense 特征
+        x = self.fusion(x) # -> [B, C_target, T, F]
+        
+        # Step 2: 残差细化
+        # 在 Decoder 阶段，我们通常希望修正信号，Residual 更好
+        for layer in self.layers:
+            res = layer(x)
+            x = x + res # Residual connection
+            
+        return x
 class Encoder(nn.Module):
     def __init__(self, base_channels=16, kernel_size=(3,3), use_layer_norm=False):
         super().__init__()
         # 3 (input chan) * 3 (SFE kernel) = 9
         self.en_convs = nn.ModuleList([
-            ConvBlock(3*3, base_channels, (1,5), stride=(1,2), padding=(0,2), use_deconv=False, is_last=False),
+            ConvBlock(3*3, 16, (1,5), stride=(1,2), padding=(0,2), use_deconv=False, is_last=False),
+            DenseBlock(in_channels=16, growth_rate=2, num_convs = 4, use_deconv=False ),
+            # HarmoConvBlock(channels=base_channels, n_layers=4, kernel_size=(1,3), use_deconv=False),
             ConvBlock(base_channels, base_channels, (1,5), stride=(1,2), padding=(0,2), groups=2, use_deconv=False, is_last=False),
             # Parametric Kernel Size
             GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), padding=(0, (kernel_size[1]-1)//2), dilation=(1,1), use_deconv=False, use_layer_norm=use_layer_norm),
@@ -331,7 +442,9 @@ class Decoder(nn.Module):
             GTConvBlock(base_channels, base_channels, kernel_size, stride=(1,1), 
                         padding=(pad_t(k_t, 1), pad_f(k_f)), dilation=(1,1), use_deconv=True, use_layer_norm=False),
             ConvBlock(base_channels, base_channels, (1,5), stride=(1,2), padding=(0,2), groups=2, use_deconv=True, is_last=False),
-            ConvBlock(base_channels, 2, (1,5), stride=(1,2), padding=(0,2), use_deconv=True, is_last=True)
+            DenseDecoderBlock(in_channels_from_encoder=base_channels, target_channels=16, num_convs=4),
+            # HarmoConvBlock(channels=base_channels, n_layers=4, kernel_size=(1,3), use_deconv=False),
+            ConvBlock(16, 2, (1,5), stride=(1,2), padding=(0,2), use_deconv=True, is_last=True)
         ])
 
     def forward(self, x, en_outs):
@@ -428,7 +541,7 @@ class GTCRN(nn.Module):
 
 
 if __name__ == "__main__":
-    model = GTCRN(base_channels=24, use_grouped_rnn=True).eval()
+    model = GTCRN(base_channels=24, use_grouped_rnn=False).eval()
 
     from ptflops import get_model_complexity_info
     """complexity count"""

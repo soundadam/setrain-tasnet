@@ -7,7 +7,7 @@ import multiprocessing
 # from Loss import Loss
 from utils.loss_factory import HybridLoss as Loss
 from datasets_related.Datasets import Datasets
-from models.gtcrn import GTCRN
+# from models.gtcrn import GTCRN
 from torchmetrics.audio import PerceptualEvaluationSpeechQuality
 from torchmetrics.audio import DeepNoiseSuppressionMeanOpinionScore
 from utils.utils import save_validation_samples
@@ -30,11 +30,24 @@ class LitModule(LightningModule):
                  # --- Model Hyperparameters ---
                  base_channels=16,
                  kernel_size=3,  # Passed as int, converted to tuple later
-                 use_grouped_rnn=False
+                 use_grouped_rnn=False,
+        model_arch='base'
                  ):
         super(LitModule, self).__init__()
+        if model_arch == 'base':
+            from models.gtcrn import GTCRN
+        elif model_arch == 'v1':
+            from models.dev.gtcrn_wider2 import GTCRN
+        elif model_arch == 'v2':
+            from models.gtcrn_dense import GTCRN
+        elif model_arch == 'v3':
+            from models.gtcrn_nosfe import GTCRN
+        elif model_arch == 'v4':
+            from models.gtcrn_deeper1_break import GTCRN
+        else:
+            raise ValueError(f"Unknown model_arch '{model_arch}'")
+            
         self.save_hyperparameters()
-
         # Paths
         self.train_mix_scp = train_mix_scp
         self.train_ref_scp = train_ref_scp
@@ -52,6 +65,7 @@ class LitModule(LightningModule):
         # --- Model Initialization with Config ---
         # Convert kernel_size int to tuple if necessary, e.g. 3 -> (3,3)
         k_size = (kernel_size, kernel_size) if isinstance(kernel_size, int) else kernel_size
+
         
         self.model = GTCRN(
             base_channels=base_channels,
@@ -77,7 +91,7 @@ class LitModule(LightningModule):
                 self.logger.experiment.define_metric("train_loss", step_metric="epoch")
                 self.logger.experiment.define_metric("val_loss", step_metric="epoch")
                 self.logger.experiment.define_metric("SI-SNR", step_metric="epoch")
-                self.logger.experiment.define_metric("lr-Adam", step_metric="epoch") 
+                self.logger.experiment.define_metric("lr-AdamW", step_metric="epoch") 
             except AttributeError:
                 pass
 
@@ -174,10 +188,14 @@ class LitModule(LightningModule):
         # self.test_dnsmos is already initialized on the correct device
         try:
             dnsmos_res = self.test_dnsmos(ests)
-            self.log('test_DNSMOS_OVRL', dnsmos_res['dnsmos_ovrl'], on_step=False, on_epoch=True)
-            self.log('test_DNSMOS_SIG', dnsmos_res['dnsmos_sig'], on_step=False, on_epoch=True)
-            self.log('test_DNSMOS_BAK', dnsmos_res['dnsmos_bak'], on_step=False, on_epoch=True)
-            self.log('test_DNSMOS_P808', dnsmos_res['dnsmos_p808'], on_step=False, on_epoch=True)
+            # self.log('test_DNSMOS_OVRL', dnsmos_res['dnsmos_ovrl'], on_step=False, on_epoch=True)
+            # self.log('test_DNSMOS_SIG', dnsmos_res['dnsmos_sig'], on_step=False, on_epoch=True)
+            # self.log('test_DNSMOS_BAK', dnsmos_res['dnsmos_bak'], on_step=False, on_epoch=True)
+            # self.log('test_DNSMOS_P808', dnsmos_res['dnsmos_p808'], on_step=False, on_epoch=True)
+            self.log('test_DNSMOS_OVRL', dnsmos_res[0], on_step=False, on_epoch=True)
+            self.log('test_DNSMOS_SIG', dnsmos_res[1], on_step=False, on_epoch=True)
+            self.log('test_DNSMOS_BAK', dnsmos_res[2], on_step=False, on_epoch=True)
+            self.log('test_DNSMOS_P808', dnsmos_res[3], on_step=False, on_epoch=True)
         except Exception as e:
             print(f"DNSMOS Error: {e}")
 
@@ -185,16 +203,17 @@ class LitModule(LightningModule):
         # Move tensors to CPU explicitly for PESQ
         try:
             # torchmetrics PESQ expects inputs on CPU usually, or handles transfer internally but it's safer to detach/cpu
-            pesq_score = self.test_pesq(ests.detach().cpu(), refs.detach().cpu())
+            pesq_score = self.test_pesq(ests.detach().cpu(), refs[0].detach().cpu())
             self.log('test_PESQ', pesq_score, on_step=False, on_epoch=True)
         except Exception as e:
             print(f"PESQ Error: {e}")
 
     def configure_optimizers(self):
         # ... (Same as before)
-        optimizer = optim.Adam(self.parameters(), lr=self.learning_rate, weight_decay=1e-5)
+        # optimizer = optim.Adam(self.parameters(), lr=self.learning_rate, weight_decay=1e-5)
+        optimizer = optim.AdamW(self.parameters(), lr=self.learning_rate, weight_decay=0.01)
         total_steps = self.trainer.estimated_stepping_batches
-        warmup_steps = int(total_steps * 0.15) 
+        warmup_steps = int(total_steps * 0.05) 
         scheduler = LinearWarmupCosineAnnealingLR(
             optimizer, warmup_steps=warmup_steps, decay_until_step=total_steps,
             max_lr=self.learning_rate, min_lr=1e-6

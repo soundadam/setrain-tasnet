@@ -4,7 +4,7 @@ from torch import optim
 from torch.utils.data import DataLoader
 from pytorch_lightning import LightningModule
 
-from Loss import Loss
+from utils.Loss import Loss
 from datasets_related.Datasets import Datasets
 from models.convtasnet import ConvTasNet
 from models.gtcrn import GTCRN
@@ -216,7 +216,7 @@ class LitModule(LightningModule):
     #     return {'optimizer': optimizer, 'lr_scheduler': {'scheduler': scheduler, 'monitor': 'val_loss'}}
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=self.learning_rate, weight_decay=1e-5)
+        optimizer = optim.AdamW(self.parameters(), lr=self.learning_rate)
 
         # 计算总步数 (total_steps)
         # Lightning 提供了 estimated_stepping_batches 来自动计算: max_epochs * limit_train_batches / accumulate_grad_batches
